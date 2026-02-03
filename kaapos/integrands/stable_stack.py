@@ -2,7 +2,7 @@ import numpy as np
 from dataclasses import dataclass
 from typing import List, Optional
 
-from samplers.sampler import SamplerResult, OrientedSamplerResult
+from kaapos.samplers import SamplerResult, OrientedSamplerResult
 from .integrand import Integrand, IntegrandResult
 
 
@@ -31,7 +31,7 @@ class StableStack:
         if not levels:
             raise ValueError("levels must be a non-empty list")
         self.levels = levels
-        
+
         # Per-level accounting (accumulates between get_and_reset_stats calls)
         self._processed = np.zeros(len(levels), dtype=np.int64)
         self._resolved = np.zeros(len(levels), dtype=np.int64)
@@ -66,16 +66,17 @@ class StableStack:
 
     def evaluate(self, sampler_result: SamplerResult) -> IntegrandResult:
         """Evaluate sampler results through the stack of precision levels.
-        
+
         Args:
             sampler_result: Input sampler result to evaluate
-            
+
         Returns:
             IntegrandResult with values and success flags for all points
         """
         n = sampler_result.jacobian_array.shape[0]
         if sampler_result.loop_momentum_array.shape[0] != n:
-            raise ValueError("SamplerResult arrays must have matching first dimension")
+            raise ValueError(
+                "SamplerResult arrays must have matching first dimension")
 
         values = np.zeros(n, dtype=np.float64)
         success = np.zeros(n, dtype=np.int32)
@@ -100,13 +101,14 @@ class StableStack:
                 values[idx[m]] = res.values[m]
                 success[idx[m]] = 1
                 unresolved[idx[m]] = False
-            
+
             # Accounting
             self._processed[level_i] += idx.size
             self._resolved[level_i] += int(np.count_nonzero(m))
             # Use integrand-reported average time per point when available
             if res.timing_us_per_point:
-                self._time_us[level_i] += float(res.timing_us_per_point) * float(idx.size)
+                self._time_us[level_i] += float(
+                    res.timing_us_per_point) * float(idx.size)
 
         # Average timing per input point across the whole batch
         total_time_us = float(np.sum(self._time_us))
@@ -118,7 +120,7 @@ class StableStack:
 
         Args:
             total_points: if provided, included in the returned dict; otherwise uses last batch size.
-            
+
         Returns:
             Dictionary with per-level statistics and total points processed
         """
@@ -145,4 +147,3 @@ class StableStack:
         self._time_us[:] = 0.0
         self._last_total_points = 0
         return out
-

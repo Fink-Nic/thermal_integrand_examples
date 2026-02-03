@@ -5,19 +5,20 @@ from time import perf_counter
 from .integrand import Integrand, IntegrandResult
 from symbolica import *
 import gc
-from samplers.sampler import SamplerResult, OrientedSamplerResult
+from kaapos.samplers import SamplerResult, OrientedSamplerResult
 import itertools
 
 # Suppress warnings about small numbers
 import warnings
 warnings.filterwarnings('ignore', message='.*smallest.*subnormal.*')
 
+
 class SymbolicaIntegrand(Integrand):
     """Evaluates the integrand for given momenta and jacobian.
-    
+
     This class provides an interface to evaluate the Symbolica integrand implementation
     for a set of input momenta and jacobian values.
-    
+
     Attributes:
         n_edges: Number of edges in the diagram
         n_loops: Number of loops in the diagram
@@ -30,7 +31,7 @@ class SymbolicaIntegrand(Integrand):
         timing_us_per_point: Last evaluation timing in microseconds per point
         path_to_example: Path to the example directory containing src
     """
-    
+
     def __init__(
         self,
         params: np.ndarray,
@@ -49,7 +50,7 @@ class SymbolicaIntegrand(Integrand):
         runtime_summation: bool = False
     ):
         """Initialize the integrand.
-        
+
         Args:
             params: Array of physical parameters
             path_to_example: Path to the example directory containing src (e.g., 'examples/sunset2')
@@ -71,18 +72,23 @@ class SymbolicaIntegrand(Integrand):
         self.stability_tolerance = float(stability_tolerance)
         self.stability_abs_tolerance = float(stability_abs_tolerance)
         self.stability_abs_threshold = float(stability_abs_threshold)
-        self.escalate_large_weight_multiplier = float(escalate_large_weight_multiplier)
-        self.escalate_small_momentum_multiplier = float(escalate_small_momentum_multiplier)
-        self.escalate_large_momentum_multiplier = float(escalate_large_momentum_multiplier)
+        self.escalate_large_weight_multiplier = float(
+            escalate_large_weight_multiplier)
+        self.escalate_small_momentum_multiplier = float(
+            escalate_small_momentum_multiplier)
+        self.escalate_large_momentum_multiplier = float(
+            escalate_large_momentum_multiplier)
         self.max_weight = 0.0
         self.rotation_seed = rotation_seed
         self.n_shots = int(n_shots)
         self.sum_orientations = bool(sum_orientations)
         self.runtime_summation = bool(runtime_summation)
         if self.runtime_summation and not self.sum_orientations:
-            raise ValueError("runtime_summation can only be True when sum_orientations is True")
+            raise ValueError(
+                "runtime_summation can only be True when sum_orientations is True")
         # Construct path to the config file
-        config_path = os.path.join(self.path_to_example, "src", "symbolica_integrand", "config.json")
+        config_path = os.path.join(
+            self.path_to_example, "src", "symbolica_integrand", "config.json")
         # Load variables from config.json
         with open(config_path, "r") as f:
             self.config = json.load(f)
@@ -102,7 +108,8 @@ class SymbolicaIntegrand(Integrand):
             self._ensure_evaluator()
         # Per-instance RNG to avoid global-state coupling when multiple Integrands share a process
         # Deterministic across runs when rotation_seed is provided
-        self._rng = np.random.default_rng(rotation_seed) if rotation_seed is not None else None
+        self._rng = np.random.default_rng(
+            rotation_seed) if rotation_seed is not None else None
 
     def __getstate__(self):
         state = self.__dict__.copy()
@@ -125,9 +132,10 @@ class SymbolicaIntegrand(Integrand):
         if (self.compiled_evaluator is not None):
             return  # Already compiled
 
-        build_dir = os.path.join(self.path_to_example, "build", "symbolica_integrand")
+        build_dir = os.path.join(self.path_to_example,
+                                 "build", "symbolica_integrand")
         os.makedirs(build_dir, exist_ok=True)
-        
+
         # Use example name for shared filenames
         example_name = os.path.basename(os.path.normpath(self.path_to_example))
         if self.sum_orientations and not self.runtime_summation:
@@ -135,14 +143,17 @@ class SymbolicaIntegrand(Integrand):
             so_path = os.path.join(build_dir, f"integrand_{example_name}.so")
         else:
             # Both sum_orientations=False and runtime_summation=True use the same evaluator type
-            cpp_path = os.path.join(build_dir, f"integrand_{example_name}_rho_term.cpp")
-            so_path = os.path.join(build_dir, f"integrand_{example_name}_rho_term.so")
-        
+            cpp_path = os.path.join(
+                build_dir, f"integrand_{example_name}_rho_term.cpp")
+            so_path = os.path.join(
+                build_dir, f"integrand_{example_name}_rho_term.so")
+
         # Helper function to compile evaluator (expensive operation)
         def compile_evaluator():
             print(f"Compiling evaluator for {example_name}")
 
-            loop_momentum_vars = [S(x) for x in self.config["loop_momentum_components"]]
+            loop_momentum_vars = [
+                S(x) for x in self.config["loop_momentum_components"]]
             if self.sum_orientations and not self.runtime_summation:
                 sign_vars = []
             else:
@@ -156,10 +167,12 @@ class SymbolicaIntegrand(Integrand):
             dot_products = self.config["dot_products"]
 
             for sp_name, expression_str in dot_products.items():
-                functions[(S(sp_name), sp_name, tuple(loop_momentum_vars))] = E(expression_str)
+                functions[(S(sp_name), sp_name, tuple(loop_momentum_vars))] = E(
+                    expression_str)
 
             # Read integrand as Symbolica expression
-            integrand_expr = E(open(os.path.join(self.path_to_example, "src", "symbolica_integrand", "integrand.txt")).read())
+            integrand_expr = E(open(os.path.join(
+                self.path_to_example, "src", "symbolica_integrand", "integrand.txt")).read())
 
             if self.sum_orientations and not self.runtime_summation:
                 # Pre-compile sum over all orientations
@@ -176,12 +189,14 @@ class SymbolicaIntegrand(Integrand):
                 # Keep rho variables for runtime evaluation (both sum_orientations=False and runtime_summation=True)
                 integrand = integrand_expr
                 for tag in self.edge_tags:
-                    integrand = integrand.replace(E(f"rho('{tag}')"), S(f"rho_{tag}"))
+                    integrand = integrand.replace(
+                        E(f"rho('{tag}')"), S(f"rho_{tag}"))
 
             # Replace sp variables with sp functions in integrand dynamically
             for sp_name, _ in dot_products.items():
-                integrand = integrand.replace(S(sp_name), S(sp_name)(*loop_momentum_vars))
-            
+                integrand = integrand.replace(
+                    S(sp_name), S(sp_name)(*loop_momentum_vars))
+
             external_functions = {
                 (S("Tanh"), "tanh"): lambda args: np.tanh(args[0]),
                 (S("Coth"), "coth"): lambda args: 1/(np.tanh(args[0])),
@@ -189,7 +204,8 @@ class SymbolicaIntegrand(Integrand):
                 (S("Csch"), "csch"): lambda args: 1/(np.sinh(args[0]))
             }
 
-            evaluator = integrand.evaluator({}, functions, vars_list, iterations=0, external_functions=external_functions)
+            evaluator = integrand.evaluator(
+                {}, functions, vars_list, iterations=0, external_functions=external_functions)
 
             custom_header = (
                 "template<typename T> T tanh(T x) { return std::tanh(x); } "
@@ -198,41 +214,45 @@ class SymbolicaIntegrand(Integrand):
                 "template<typename T> T csch(T x) { return T(1)/std::sinh(x); }"
             )
 
-            evaluator.compile('integrand', cpp_path, so_path, 'real', inline_asm='default', custom_header=custom_header)
+            evaluator.compile('integrand', cpp_path, so_path, 'real',
+                              inline_asm='default', custom_header=custom_header)
             del evaluator
             gc.collect()
-        
+
         if self.force_rebuild or not (os.path.exists(so_path) and os.path.getsize(so_path) > 0):
             compile_evaluator()
             self.force_rebuild = False
-        
-        self.compiled_evaluator = CompiledRealEvaluator.load(so_path, 'integrand', self.n_vars , 1)
-    
+
+        self.compiled_evaluator = CompiledRealEvaluator.load(
+            so_path, 'integrand', self.n_vars, 1)
+
     def set_params(self, params: np.ndarray = None):
         if params is not None:
             params = np.asarray(params, dtype=np.float64)
             if len(params) != self.n_params:
-                raise ValueError(f"params must be an array of length {self.n_params}")
+                raise ValueError(
+                    f"params must be an array of length {self.n_params}")
             self.params = params
-    
+
     def _generate_rotation_matrix(self, dim):
         """Generate a random rotation matrix of given dimension.
-        
+
         Uses QR decomposition to create a proper orthogonal matrix with determinant +1.
         Seeds the random generator on first call if rotation_seed is provided, then
         preserves the generator state for subsequent calls.
-        
+
         Args:
             dim: Dimension of the rotation matrix
-            
+
         Returns:
             numpy.ndarray: Random rotation matrix of shape (dim, dim)
         """
-        
+
         # Use a per-instance RNG for determinism and to avoid affecting global RNG state
         if self._rng is None:
             # Lazily create RNG so that objects unpickled without _rng still work deterministically
-            self._rng = np.random.default_rng(self.rotation_seed) if self.rotation_seed is not None else np.random.default_rng()
+            self._rng = np.random.default_rng(
+                self.rotation_seed) if self.rotation_seed is not None else np.random.default_rng()
 
         # Generate a random matrix
         random_matrix = self._rng.standard_normal((dim, dim))
@@ -242,7 +262,7 @@ class SymbolicaIntegrand(Integrand):
         if np.linalg.det(Q) < 0:
             Q[:, 0] *= -1
         return Q
-    
+
     def _randomly_rotate_loop_momenta(self, loop_momentum_array: np.ndarray) -> np.ndarray:
         """
         Rotate all loop momenta in the array using a random rotation matrix.
@@ -258,10 +278,10 @@ class SymbolicaIntegrand(Integrand):
         rotation_matrix = self._generate_rotation_matrix(dim)
         # Apply the rotation to each momentum vector
         # Shape: (n_points, n_loops, dim) x (dim, dim) -> (n_points, n_loops, dim)
-        rotated = np.einsum('ij,...j->...i', rotation_matrix, loop_momentum_array)
+        rotated = np.einsum(
+            'ij,...j->...i', rotation_matrix, loop_momentum_array)
         return rotated
 
-    
     def _rotate_loop_momenta_around_axis(self, loop_momentum_array: np.ndarray, axis: int) -> np.ndarray:
         """
         Rotate all loop momenta in the array around the specified axis by pi/2.
@@ -292,9 +312,10 @@ class SymbolicaIntegrand(Integrand):
         rotation_matrix[j, i] = 1
         # Apply rotation to each momentum vector
         # Shape: (n_points, n_loops, dim) x (dim, dim) -> (n_points, n_loops, dim)
-        rotated = np.einsum('ij,...j->...i', rotation_matrix, loop_momentum_array)
+        rotated = np.einsum(
+            'ij,...j->...i', rotation_matrix, loop_momentum_array)
         return rotated
-    
+
     def _rotation_stability_mask(self, base_result: np.ndarray, loop_momentum_array: np.ndarray, weight_array: np.ndarray, evaluate_with_momentum):
         """
         Compute a boolean mask marking unstable points under random rotations.
@@ -318,11 +339,13 @@ class SymbolicaIntegrand(Integrand):
 
         # Mark points as unstable if any of the loop momenta is smaller than the escalate_small_momentum_multiplier
         if self.escalate_small_momentum_multiplier > 0.0:
-            stability_mask |= np.any(loop_momentum_norm < self.escalate_small_momentum_multiplier, axis=1)
+            stability_mask |= np.any(
+                loop_momentum_norm < self.escalate_small_momentum_multiplier, axis=1)
 
         # Mark points as unstable if any of the loop momenta is larger than the escalate_large_momentum_multiplier
         if self.escalate_large_momentum_multiplier > 0.0:
-            stability_mask |= np.any(loop_momentum_norm > self.escalate_large_momentum_multiplier, axis=1)
+            stability_mask |= np.any(
+                loop_momentum_norm > self.escalate_large_momentum_multiplier, axis=1)
 
         all_results_array = np.empty((self.n_shots, n_points))
 
@@ -330,11 +353,14 @@ class SymbolicaIntegrand(Integrand):
         all_results_array[0] = base_result
 
         for i in range(1, self.n_shots):
-            rotated_loop_momentum_array = self._randomly_rotate_loop_momenta(loop_momentum_array)
-            all_results_array[i] = evaluate_with_momentum(rotated_loop_momentum_array)
+            rotated_loop_momentum_array = self._randomly_rotate_loop_momenta(
+                loop_momentum_array)
+            all_results_array[i] = evaluate_with_momentum(
+                rotated_loop_momentum_array)
 
         # Compute average
-        average_result = np.mean(all_results_array, axis=0)  # Shape: (n_points,)
+        average_result = np.mean(
+            all_results_array, axis=0)  # Shape: (n_points,)
 
         # Check stability by comparing each result against the average
         for i in range(self.n_shots):
@@ -355,7 +381,7 @@ class SymbolicaIntegrand(Integrand):
                 abs_diff,  # Use absolute difference for small values
                 rel_diff   # Use relative difference for large values
             )
-            
+
             # Use appropriate tolerance based on whether we're using absolute or relative differences
             tolerance_to_use = np.where(
                 magnitude < self.stability_abs_threshold,
@@ -400,7 +426,7 @@ class SymbolicaIntegrand(Integrand):
                     f"orientation_array shape {sampler_result.orientation_vector_array.shape} does not match "
                     f"expected shape {n_points, self.n_edges}"
                 )
-    
+
     def _evaluate_variables(self, variables: np.ndarray) -> np.ndarray:
         """Evaluate the integrand for the given variables - to be implemented by subclasses."""
         values = self.compiled_evaluator.evaluate(variables)
@@ -413,68 +439,77 @@ class SymbolicaIntegrand(Integrand):
         n_points = len(sampler_result.jacobian_array)
 
         self.max_weight = max(self.max_weight, max_weight)
-        
+
         # Validate inputs
         self._validate_sampler_result(sampler_result, n_points)
-        
+
         # Helper function to evaluate with given momentum array and optional orientation
         def _evaluate_with_momentum(momentum_array: np.ndarray, orientation_signs: np.ndarray = None) -> np.ndarray:
             # Reshape momentum array from (n_points, n_loops, dim) to (n_points, n_loops*dim)
-            momentum_flat = momentum_array.reshape(n_points, self.n_loops * self.dim)
+            momentum_flat = momentum_array.reshape(
+                n_points, self.n_loops * self.dim)
             # Concatenate flattened momentum with parameters to get shape (n_points, n_loops*dim + n_params)
             if self.sum_orientations and not self.runtime_summation:
                 # Pre-computed sum: no orientation variables needed
-                variables = np.hstack([momentum_flat, np.tile(self.params, (n_points, 1))])
+                variables = np.hstack(
+                    [momentum_flat, np.tile(self.params, (n_points, 1))])
             else:
                 # Need orientation variables (either sum_orientations=False or runtime_summation=True)
                 if orientation_signs is None:
                     if isinstance(sampler_result, OrientedSamplerResult):
                         orientation_signs = sampler_result.orientation_vector_array
                     else:
-                        raise ValueError("orientation_signs required when sum_orientations=False or for runtime summation")
-                variables = np.hstack([momentum_flat, orientation_signs, np.tile(self.params, (n_points, 1))])
-            
+                        raise ValueError(
+                            "orientation_signs required when sum_orientations=False or for runtime summation")
+                variables = np.hstack(
+                    [momentum_flat, orientation_signs, np.tile(self.params, (n_points, 1))])
+
             # Delegate to subclass-specific evaluation
             values = self._evaluate_variables(variables)
             return sampler_result.jacobian_array * values
-        
+
         # Handle different evaluation modes
         if self.sum_orientations and self.runtime_summation:
             # Runtime summation: evaluate for each orientation combination and sum
             result = np.zeros(n_points)
-            orientation_combinations = list(itertools.product([-1, 1], repeat=len(self.edge_tags)))
-            
+            orientation_combinations = list(
+                itertools.product([-1, 1], repeat=len(self.edge_tags)))
+
             for signs in orientation_combinations:
                 # Create orientation array for this combination
                 orientation_array = np.tile(np.array(signs), (n_points, 1))
-                term_result = _evaluate_with_momentum(sampler_result.loop_momentum_array, orientation_array)
+                term_result = _evaluate_with_momentum(
+                    sampler_result.loop_momentum_array, orientation_array)
                 result += term_result
         else:
             # Standard evaluation (either pre-computed sum or single orientation)
-            result = _evaluate_with_momentum(sampler_result.loop_momentum_array)
-        
+            result = _evaluate_with_momentum(
+                sampler_result.loop_momentum_array)
+
         # Stability check wrapper for runtime summation
         if self.sum_orientations and self.runtime_summation:
             # For stability check, we need a version of _evaluate_with_momentum that handles the summation
             def _evaluate_with_momentum_summed(momentum_array: np.ndarray) -> np.ndarray:
                 summed_result = np.zeros(n_points)
-                orientation_combinations = list(itertools.product([-1, 1], repeat=len(self.edge_tags)))
+                orientation_combinations = list(
+                    itertools.product([-1, 1], repeat=len(self.edge_tags)))
                 for signs in orientation_combinations:
                     orientation_array = np.tile(np.array(signs), (n_points, 1))
-                    term_result = _evaluate_with_momentum(momentum_array, orientation_array)
+                    term_result = _evaluate_with_momentum(
+                        momentum_array, orientation_array)
                     summed_result += term_result
                 return summed_result
-            
+
             stability_mask = self._rotation_stability_mask(
-                result, 
-                sampler_result.loop_momentum_array, 
+                result,
+                sampler_result.loop_momentum_array,
                 sampler_result.weight_array[:, 0],
                 _evaluate_with_momentum_summed,
             )
         else:
             stability_mask = self._rotation_stability_mask(
-                result, 
-                sampler_result.loop_momentum_array, 
+                result,
+                sampler_result.loop_momentum_array,
                 sampler_result.weight_array[:, 0],
                 _evaluate_with_momentum,
             )
@@ -482,7 +517,8 @@ class SymbolicaIntegrand(Integrand):
         # Create success array and zero out unstable results
         success = np.ones(n_points, dtype=np.int32)
         success[stability_mask] = 0
-        result[stability_mask] = 0.0  # This can be removed once the fallback to higher precision is implemented
+        # This can be removed once the fallback to higher precision is implemented
+        result[stability_mask] = 0.0
 
         end_time = perf_counter()
         self.timing_us_per_point = 1e6 * (end_time - start_time) / n_points

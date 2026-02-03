@@ -1,12 +1,13 @@
 import numpy as np
 from dataclasses import dataclass
 from abc import ABC, abstractmethod
-from samplers.sampler import SamplerResult
+from kaapos.samplers import SamplerResult
+
 
 @dataclass(frozen=True, slots=True)
 class IntegrandResult:
     """Result of an integrand evaluation.
-    
+
     Attributes:
         values: Array of computed values for each input point
         success: Array of success flags (1 for success, 0 for failure)
@@ -16,12 +17,13 @@ class IntegrandResult:
     success: np.ndarray
     timing_us_per_point: float = 0.0
 
+
 class Integrand(ABC):
     """Abstract base class for integrand evaluators."""
 
     def __init__(self, params: np.ndarray, path_to_example: str):
         """Initialize the integrand evaluator.
-        
+
         Args:
             params: Array of physical parameters
             path_to_example: Path to the example directory containing src (e.g., 'examples/sunset2')
@@ -34,13 +36,13 @@ class Integrand(ABC):
     @abstractmethod
     def evaluate(self, sampler_result: SamplerResult) -> IntegrandResult:
         """Evaluate the integrand for given momenta and jacobian.
-        
+
         Args:
             sampler_result: SamplerResult object containing jacobian_array and loop_momentum_array
-            
+
         Returns:
             IntegrandResult containing the computed values, success flags, and timing
-            
+
         Raises:
             ValueError: If input arrays have incompatible shapes
         """
@@ -53,4 +55,3 @@ class Integrand(ABC):
                 setattr(self, key, value)
             else:
                 raise ValueError(f"Invalid parameter: {key}")
-
